@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import passport from 'passport';
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import Key from "./config/key.js";
+// import Key from "./config/key.js";
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bodyParser from 'body-parser';
@@ -30,6 +30,11 @@ import Manager from './models/addmanager.model.js';
 import Team from './models/addteam.model.js';
 import Status from './models/status.model.js';
 import AddTeam from './models/addteam.model.js';
+// import moment from 'moment';
+import passportJwt from 'passport-jwt';
+import Key from './config/key.js';
+import jwtStrategy from 'passport-jwt';
+import extractJwt from 'passport-jwt';  // Replace with your actual secret key
 import moment from 'moment';
 const app = express();
 const port = process.env.PORT || 5000;
@@ -40,13 +45,6 @@ const __dirname = path.dirname(__filename);
 
 const URI = process.env.ATLAS_URI;
 
-mongoose.connect(URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}, err => {
-  if (err) throw err;
-  console.log('Connected to MongoDB Atlas !!!')
-})
 
 app.use(cors());
 app.use(express.json({ limit: '5000mb' })); // adjust the limit as needed
@@ -55,6 +53,56 @@ app.use(express.urlencoded({ limit: '5000mb', extended: false })); // adjust the
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(passport.initialize());
+
+
+
+mongoose.connect(URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}, err => {
+  if (err) throw err;
+  console.log('Connected to MongoDB Atlas !!!')
+})
+
+const JwtStrategy = passportJwt.Strategy;
+const ExtractJwt = passportJwt.ExtractJwt;
+const options = {
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: Key.key,  // Replace with your actual secret key
+};
+
+passport.use(
+  new JwtStrategy(options, (jwtPayload, done) => {
+    // Check if the user exists in the database based on jwtPayload
+    // You can query your database to get user details using jwtPayload.sub (user id)
+
+    // Example:
+    User.findById(jwtPayload.sub)
+      .then(user => {
+        if (user) {
+          return done(null, user);
+        } else {
+          return done(null, false);
+        }
+      })
+      .catch(err => done(err, false));
+  })
+);
+const authenticateToken = (req, res, next) => {
+  passport.authenticate('jwt', { session: false }, (err, user) => {
+    if (err) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    if (!user) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    // Attach the user object to the request
+    req.user = user;
+    next();
+  })(req, res, next);
+};
 
 // For Routing Purpose
 // import User from './routes/user.js'
@@ -392,6 +440,8 @@ app.post("/login", async (req, res) => {
           expiresIn: 900,
         },
         (err, token) => {
+          console.log('Backend Token:', token); // Log the token
+          res.cookie('token', token, { httpOnly: true, secure: true }); // Set the token in a cookie
           res.json({
             success: true,
             token: "Bearer " + token,
@@ -444,6 +494,8 @@ app.post("/login", async (req, res) => {
                   expiresIn: 900,
                 },
                 (err, token) => {
+                  console.log('Backend Token:', token); // Log the token
+                  res.cookie('token', token, { httpOnly: true, secure: true }); // Set the token in a cookie
                   res.json({
                     success: true,
                     token: "Bearer " + token,
@@ -467,6 +519,7 @@ app.post("/login", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
   app.get("/users", (req, res) => {
   User.find({}, "name")
@@ -1425,6 +1478,15 @@ app.get("*", (req, res) => {
 // app.get('*', (req, res) => {
 //   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 // });
+
+app.get('/get-token', authenticateToken, (req, res) => {
+  // Access user details through req.user
+  console.log('Backend Token:', req.token);
+
+  // Send the token back to the client if needed
+  res.json({ token: req.token });
+});
+
 
 app.listen(port, () => {
   console.log(`Server Running On Port : ${port}`);
